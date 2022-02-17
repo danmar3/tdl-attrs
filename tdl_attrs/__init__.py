@@ -1,4 +1,4 @@
 from .core import TdlDescriptor
-from .core import prep
+from .core import define
 
 pr = TdlDescriptor

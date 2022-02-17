@@ -162,7 +162,7 @@ def init_wrapper(init_fn):
     return init
 
 
-def prep(cls):
+def define(cls):
     graph = get_tdl_graph(cls)
     if hasattr(cls, '__TDL__') and (
             cls.__init__ in [bi.__init__ for bi in cls.__bases__]):
