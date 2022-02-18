@@ -9,7 +9,7 @@ import importlib.util
 #                   pip install dist/project_name.tar.gz
 
 DEPS = ['networkx']
-DEPS_DEV = ['pytest']
+DEPS_DEV = ['pytest', 'coverage']
 
 
 def get_dependencies():
