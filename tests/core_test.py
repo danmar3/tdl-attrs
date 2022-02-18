@@ -171,6 +171,18 @@ class CoreTest(unittest.TestCase):
                           )
         tdl.build(model_a1, test_a4=4.0, test_a5=5.0)
 
+        model_a1 = ModelA(test_a1=tdl.ar(1.0),
+                          test_a3=tdl.ar(3.0),
+                          test_a5=tdl.ar(bias=1.5)
+                          )
+        tdl.build(model_a1, test_a4=4.0, test_a5=tdl.ar(value=5.0))
+
+        model_a1 = ModelA(test_a1=tdl.ar(1.0),
+                          test_a3=tdl.ar(3.0),
+                          test_a5=tdl.ar(bias=1.5)
+                          )
+        tdl.build(model_a1, test_a4=4.0, test_a5={'value': 5.0})
+
     def test_inheritance(self):
         class ModelA(object):
             def __init__(self, value):
@@ -215,5 +227,48 @@ class CoreTest(unittest.TestCase):
 
         model_a1 = ModelA(test_a1=tdl.ar(1.0))
         model_a1.test_a3.init(3.0)
+        tdl.build(model_a1, test_a4=4.0)
+        assert model_a1.test_a4 == 3.0*4.0
+
+    def test_setter(self):
+        @tdl.define
+        class ModelA(object):
+            test_a1 = tdl.pr.required()
+            test_a2 = tdl.pr.optional(2.0)
+
+            @tdl.pr(reqs=[test_a2], order=tdl.BUILD)
+            def test_a3(self, value):
+                return value*self.test_a2
+
+            @test_a3.setter
+            def test_a3(self, value):
+                assert isinstance(value, (int, float))
+                return value
+
+            @tdl.pr(reqs=[test_a3], order=tdl.BUILD)
+            def test_a4(self, value):
+                return value*self.test_a3
+
+        model_a1 = ModelA(test_a1=tdl.ar(1.0))
+        model_a1.test_a3 = 3.0
+        tdl.build(model_a1, test_a4=4.0)
+        assert model_a1.test_a4 == 3.0*4.0
+
+    def test_setter2(self):
+        @tdl.define
+        class ModelA(object):
+            test_a1 = tdl.pr.required()
+            test_a2 = tdl.pr.optional(2.0)
+
+            @tdl.pr(reqs=[test_a2], order=tdl.BUILD, allow_set=True)
+            def test_a3(self, value):
+                return value*self.test_a2
+
+            @tdl.pr(reqs=[test_a3], order=tdl.BUILD)
+            def test_a4(self, value):
+                return value*self.test_a3
+
+        model_a1 = ModelA(test_a1=tdl.ar(1.0))
+        model_a1.test_a3 = 3.0
         tdl.build(model_a1, test_a4=4.0)
         assert model_a1.test_a4 == 3.0*4.0

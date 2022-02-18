@@ -51,6 +51,10 @@ class TdlArgs(object):
         return f"{self.args}, {self.kargs}"
 
 
+def _default_setter(self, value):
+    return value
+
+
 class TdlDescriptor(object):
     @classmethod
     def required(cls, order=OrderType.INIT, doc=None):
@@ -66,6 +70,14 @@ class TdlDescriptor(object):
             return value
         return cls(finit=finit, order=order, doc=doc, infer_name=False)
 
+    def setter(self, fset):
+        prop = type(self)(self.finit, self.reqs, self.order,
+                          fset=fset,
+                          doc=self.__doc__,
+                          infer_name=False)
+        prop.update_name(self.name)
+        return prop
+
     class Initializer(object):
         def __init__(self, obj, attr, finit):
             self._finit = finit
@@ -77,8 +89,11 @@ class TdlDescriptor(object):
                     self._finit(self._obj, *args, **kargs))
 
     def __init__(self, finit=None, reqs=None, order=OrderType.INIT,
-                 doc=None, infer_name=True):
+                 fset=None, doc=None, infer_name=True, allow_set=False):
         self.finit = finit
+        self.fset = fset
+        if allow_set and fset is None:
+            self.fset = _default_setter
         self.order = order
         if infer_name is True:
             self.name = (None if self.finit is None else finit.__name__)
@@ -94,9 +109,11 @@ class TdlDescriptor(object):
             if finit.__doc__:
                 doc = finit.__doc__
             else:
-                doc = ('Autoinit with arguments {}'.format(
-                    [arg for arg in inspect.getfullargspec(finit).args
-                     if arg != 'self']))
+                finit_args = [
+                    arg for arg in inspect.getfullargspec(finit).args
+                    if arg != 'self']
+                doc = (f'Initializer of order {self.order} \n'
+                       f'Args: {finit_args}')
         self.__doc__ = doc
 
     def __set_name__(self, owner, name):
@@ -119,12 +136,19 @@ class TdlDescriptor(object):
         return getattr(obj, self.private_name)
 
     def __set__(self, obj, value):
-        raise AttributeError(f"can't set attribute {self.name}")
+        if self.fset is None:
+            raise AttributeError(f"can't set attribute {self.name}. "
+                                 "No setter specified.")
+        if hasattr(obj, self.private_name):
+            raise AttributeError(f"can't set attribute {self.name}. "
+                                 "Attribute has been already initialized")
+        setattr(obj, self.private_name, self.fset(obj, value))
 
     def __call__(self, finit=None):
         assert self.finit is None,\
             'the evaluation method has already been specified'
-        return type(self)(finit=finit, order=self.order, reqs=self.reqs,
+        return type(self)(finit=finit, reqs=self.reqs, order=self.order,
+                          fset=self.fset,
                           doc=self.__doc__)
 
 
