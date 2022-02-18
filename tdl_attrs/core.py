@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 class OrderType(Enum):
     INIT = 1
-    BUILD = 2
-    MANUAL = 3
+    MANUAL = 2
+    BUILD = 3
 
 
 class TDL(object):
@@ -53,40 +53,26 @@ class TdlArgs(object):
 
 class TdlDescriptor(object):
     @classmethod
-    def required(cls, doc=None):
+    def required(cls, order=OrderType.INIT, doc=None):
         def finit(self, value):
             return value
-        return cls(finit=finit, doc=doc, infer_name=False)
+        return cls(finit=finit, order=order, doc=doc, infer_name=False)
 
     @classmethod
-    def optional(cls, default=None, doc=None):
+    def optional(cls, default=None, order=OrderType.INIT, doc=None):
         def finit(self, value=None):
             if value is None:
                 return default
             return value
-        return cls(finit=finit, doc=doc, infer_name=False)
+        return cls(finit=finit, order=order, doc=doc, infer_name=False)
 
     class Initializer(object):
         def __init__(self, obj, attr, finit):
             self._finit = finit
             self._obj = obj
             self._attr = attr
-            self._given_args = None
-
-            def wrap_init(initializer, finit):
-                @functools.wraps(finit)
-                def init(self, *args, **kargs):
-                    setattr(self._obj, self._attr_name,
-                            self._finit(self._obj, *args, **kargs))
-
-        def set_args(self, given_args):
-            assert isinstance(given_args, dict)
-            self._given_args = given_args
 
         def init(self, *args, **kargs):
-            if self._given_args:
-                kargs.update(self._given_args)
-            # set the attribute using finit method
             setattr(self._obj, self._attr,
                     self._finit(self._obj, *args, **kargs))
 
@@ -96,10 +82,10 @@ class TdlDescriptor(object):
         self.order = order
         if infer_name is True:
             self.name = (None if self.finit is None else finit.__name__)
-            self.attr = f"__tdl__{self.name}"
+            self.private_name = f"__tdl__{self.name}"
         else:
             self.name = None
-            self.attr = None
+            self.private_name = None
         self.reqs = reqs
         if self.reqs is None:
             self.reqs = list()
@@ -113,20 +99,24 @@ class TdlDescriptor(object):
                      if arg != 'self']))
         self.__doc__ = doc
 
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.private_name = f"__tdl__{self.name}"
+
     def update_name(self, value):
         self.name = value
-        self.attr = f"__tdl__{self.name}"
+        self.private_name = f"__tdl__{self.name}"
 
     def __get__(self, obj, objtype):
         if obj is None:
             return self
-        assert self.attr is not None
-        if not hasattr(obj, self.attr):
+        assert self.private_name is not None
+        if not hasattr(obj, self.private_name):
             value = TdlDescriptor.Initializer(
-                obj=obj, attr=self.attr, finit=self.finit)
+                obj=obj, attr=self.private_name, finit=self.finit)
             value.__doc__ = self.finit.__doc__
             return value
-        return getattr(obj, self.attr)
+        return getattr(obj, self.private_name)
 
     def __set__(self, obj, value):
         raise AttributeError(f"can't set attribute {self.name}")
@@ -136,16 +126,6 @@ class TdlDescriptor(object):
             'the evaluation method has already been specified'
         return type(self)(finit=finit, order=self.order, reqs=self.reqs,
                           doc=self.__doc__)
-
-
-def find_tdl_attrs(cls):
-    attrs = dict()
-    print(cls.__mro__)
-    for ci in cls.__mro__[::-1]:
-        for ni, ai in ci.__dict__.items():
-            if isinstance(ai, TdlDescriptor):
-                attrs[ni] = ai
-    return attrs
 
 
 def get_tdl_graph(cls):
@@ -236,12 +216,8 @@ def build(obj, **kargs):
     user_args = obj.__tdl__.user_args.graph
     for ki, vi in kargs.items():
         if ki in user_args:
-            if isinstance(user_args[ki], dict) and isinstance(vi, dict):
-                user_args[ki].update(vi)
-            elif isinstance(user_args[ki], TdlArgs):
-                user_args[ki].update_infer(vi)
-            else:
-                user_args[ki] = vi
+            # user_args[ki] should be TdlArgs
+            user_args[ki].update_infer(vi)
         else:
             user_args[ki] = vi
 
