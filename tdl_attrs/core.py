@@ -1,6 +1,13 @@
 import inspect
 import functools
 import networkx as nx
+from enum import Enum
+
+
+class OrderType(Enum):
+    INIT = 1
+    BUILD = 2
+    MANUAL = 3
 
 
 class TDL(object):
@@ -13,7 +20,34 @@ class TDLobj(object):
     def __init__(self):
         self.is_init = False
         self.enable_init = True
-        self.args = dict()
+        self.user_args = dict()
+
+
+class TdlArgs(object):
+    @classmethod
+    def infer(cls, args, finit=None):
+        if isinstance(args, TdlArgs):
+            return args
+        elif isinstance(args, dict):
+            return TdlArgs(**args)
+        else:
+            return TdlArgs(args)
+
+    def __init__(self, *args, **kargs):
+        self.args = args
+        self.kargs = kargs
+
+    def update_infer(self, args):
+        if isinstance(args, TdlArgs):
+            self.args = args.args + self.args
+            self.kargs.update(args.kargs)
+        elif isinstance(args, dict):
+            self.kargs.update(args)
+        else:
+            self.args = (args,) + self.args
+
+    def __repr__(self):
+        return f"{self.args}, {self.kargs}"
 
 
 class TdlDescriptor(object):
@@ -55,8 +89,8 @@ class TdlDescriptor(object):
             setattr(self._obj, self._attr,
                     self._finit(self._obj, *args, **kargs))
 
-    def __init__(self, finit=None, order=False, reqs=None, doc=None,
-                 infer_name=True):
+    def __init__(self, finit=None, reqs=None, order=OrderType.INIT,
+                 doc=None, infer_name=True):
         self.finit = finit
         self.order = order
         if infer_name is True:
@@ -129,15 +163,36 @@ def get_tdl_graph(cls):
     return graph
 
 
-def init_graph(cls, obj, **kargs):
-    print("initializing graph")
-    for ni in nx.algorithms.dag.topological_sort(cls.__TDL__.graph):
-        if ni not in kargs:
-            getattr(obj, ni).init()
-        elif isinstance(kargs[ni], dict):
-            getattr(obj, ni).init(**kargs[ni])
-        else:
-            getattr(obj, ni).init(kargs[ni])
+def is_initialized(obj, attr):
+    # return hasattr(obj, getattr(type(obj), attr).attr)
+    return not isinstance(getattr(obj, attr), TdlDescriptor.Initializer)
+
+
+def initialize_attr(obj, attr, user_args=None):
+    if attr not in user_args:
+        getattr(obj, attr).init()
+    elif isinstance(user_args[attr], dict):
+        getattr(obj, attr).init(**user_args[attr])
+    elif isinstance(user_args[attr], TdlArgs):
+        getattr(obj, attr).init(*user_args[attr].args, **user_args[attr].kargs)
+    else:
+        getattr(obj, attr).init(user_args[attr])
+
+
+def init_graph(cls, obj, _tdl_order=OrderType.INIT, **kargs):
+    # print("initializing graph")
+    graph = cls.__TDL__.graph
+    for ni in nx.algorithms.dag.topological_sort(graph):
+        desc = graph.nodes[ni]['desc']
+        if desc.order != _tdl_order:
+            continue
+        if is_initialized(obj, ni):
+            continue
+        # check reqs are initialized
+        assert all([is_initialized(obj, ri.name) for ri in desc.reqs]), \
+            f"requirements have not been initialized for {cls}.{ni}"
+        # initialize
+        initialize_attr(obj, ni, kargs)
 
 
 def init_wrapper(init_fn):
@@ -147,7 +202,8 @@ def init_wrapper(init_fn):
             obj.__tdl__ = TDLobj()
 
         graph = type(obj).__TDL__.graph
-        graph_kargs = {ki: vi for ki, vi in kargs.items() if ki in graph}
+        graph_kargs = {ki: TdlArgs.infer(vi) for ki, vi in kargs.items()
+                       if ki in graph}
         init_kargs = {ki: vi for ki, vi in kargs.items()
                       if ki not in graph_kargs}
 
@@ -159,7 +215,26 @@ def init_wrapper(init_fn):
         obj.__tdl__.enable_init = enable_init
         if obj.__tdl__.enable_init:
             init_graph(type(obj), obj, **graph_kargs)
+            obj.__tdl__.user_args = {
+                ki: TdlArgs.infer(vi) for ki, vi in kargs.items()
+            }
     return init
+
+
+def build(obj, **kargs):
+    user_args = obj.__tdl__.user_args
+    for ki, vi in kargs.items():
+        if ki in user_args:
+            if isinstance(user_args[ki], dict) and isinstance(vi, dict):
+                user_args[ki].update(vi)
+            elif isinstance(user_args[ki], TdlArgs):
+                user_args[ki].update_infer(vi)
+            else:
+                user_args[ki] = vi
+        else:
+            user_args[ki] = vi
+
+    init_graph(type(obj), obj, _tdl_order=OrderType.BUILD, **user_args)
 
 
 def define(cls):
@@ -177,5 +252,5 @@ def define(cls):
     else:
         cls.__TDL__ = TDL(graph=graph, init=cls.__init__)
         cls.__init__ = init_wrapper(cls.__init__)
-    print([graph.nodes[ni]['desc'].name for ni in graph.nodes])
+    # print([graph.nodes[ni]['desc'].name for ni in graph.nodes])
     return cls
