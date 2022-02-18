@@ -85,6 +85,34 @@ class CoreTest(unittest.TestCase):
         assert tdl.is_initialized(model_a, "test_a1")
         assert tdl.is_initialized(model_a, "test_a4") is False
 
+    def test_initargs(self):
+        @tdl.define
+        class ModelA(object):
+            test_a1 = tdl.pr.required()
+            test_a2 = tdl.pr.optional(2.0)
+
+            @tdl.pr(reqs=[test_a1, test_a2], order=tdl.INIT)
+            def test_a3(self, value):
+                return value*self.test_a1*self.test_a2
+
+            @tdl.pr(reqs=[test_a1, test_a2], order=tdl.BUILD)
+            def test_a4(self, value):
+                return value*self.test_a1*self.test_a2
+
+            @tdl.pr(reqs=[test_a1, test_a4], order=tdl.BUILD)
+            def test_a5(self, value, bias):
+                return value*self.test_a1*self.test_a4 + bias
+
+            def __init__(self, value, kvalue):
+                self.value = value
+                self.kvalue = kvalue
+
+        model_a = ModelA("value", kvalue="kvalue", test_a1=1.0, test_a3=3.0,
+                         test_a4=4.0, test_a5={'bias': 1.0})
+        tdl.build(model_a, test_a5=5.0)
+        assert model_a.value == "value"
+        assert model_a.kvalue == "kvalue"
+
     def test_build(self):
         @tdl.define
         class ModelA(object):

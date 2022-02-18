@@ -3,6 +3,8 @@ import functools
 import networkx as nx
 from enum import Enum
 
+from types import SimpleNamespace
+
 
 class OrderType(Enum):
     INIT = 1
@@ -18,8 +20,7 @@ class TDL(object):
 
 class TDLobj(object):
     def __init__(self):
-        self.is_init = False
-        self.enable_init = True
+        self.enabled = True
         self.user_args = dict()
 
 
@@ -195,34 +196,44 @@ def init_graph(cls, obj, _tdl_order=OrderType.INIT, **kargs):
         initialize_attr(obj, ni, kargs)
 
 
+def format_user_args(graph, args, kargs):
+    graph_kargs = {ki: TdlArgs.infer(vi) for ki, vi in kargs.items()
+                   if ki in graph}
+    init_kargs = TdlArgs(
+        *args,
+        ** {ki: vi for ki, vi in kargs.items()
+            if ki not in graph_kargs})
+    return SimpleNamespace(
+        init=init_kargs,
+        graph=graph_kargs,
+        )
+
+
 def init_wrapper(init_fn):
     @functools.wraps(init_fn)
     def init(obj, *args, **kargs):
         if not hasattr(obj, '__tdl__'):
             obj.__tdl__ = TDLobj()
 
-        graph = type(obj).__TDL__.graph
-        graph_kargs = {ki: TdlArgs.infer(vi) for ki, vi in kargs.items()
-                       if ki in graph}
-        init_kargs = {ki: vi for ki, vi in kargs.items()
-                      if ki not in graph_kargs}
+        if obj.__tdl__.enabled is False:
+            init_fn(obj, *args, **kargs)
+            return
 
-        # save current value for enable graph init in case it has been set to false
-        enable_init = obj.__tdl__.enable_init
+        graph = type(obj).__TDL__.graph
+        user_args = format_user_args(graph, args, kargs)
+
         # disable graph init while calling initialization
-        obj.__tdl__.enable_init = False
-        init_fn(obj, *args, **init_kargs)
-        obj.__tdl__.enable_init = enable_init
-        if obj.__tdl__.enable_init:
-            init_graph(type(obj), obj, **graph_kargs)
-            obj.__tdl__.user_args = {
-                ki: TdlArgs.infer(vi) for ki, vi in kargs.items()
-            }
+        obj.__tdl__.enabled = False
+        init_fn(obj, *user_args.init.args, **user_args.init.kargs)
+        obj.__tdl__.enabled = True
+        # run graph initialization
+        init_graph(type(obj), obj, **user_args.graph)
+        obj.__tdl__.user_args = user_args
     return init
 
 
 def build(obj, **kargs):
-    user_args = obj.__tdl__.user_args
+    user_args = obj.__tdl__.user_args.graph
     for ki, vi in kargs.items():
         if ki in user_args:
             if isinstance(user_args[ki], dict) and isinstance(vi, dict):
