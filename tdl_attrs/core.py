@@ -265,3 +265,10 @@ def define(cls):
         cls.__init__ = init_wrapper(cls.__init__)
     # print([graph.nodes[ni]['desc'].name for ni in graph.nodes])
     return cls
+
+
+def get_input_args(obj):
+    args = obj.__tdl__.user_args.init.args
+    kargs = {**obj.__tdl__.user_args.init.kargs,
+             **obj.__tdl__.user_args.graph}
+    return args, kargs

@@ -272,3 +272,28 @@ class CoreTest(unittest.TestCase):
         model_a1.test_a3 = 3.0
         tdl.build(model_a1, test_a4=4.0)
         assert model_a1.test_a4 == 3.0*4.0
+
+    def test_getinputargs(self):
+        @tdl.define
+        class ModelA(object):
+            test_a1 = tdl.pr.required()
+            test_a2 = tdl.pr.optional(2.0)
+
+            @tdl.pr(reqs=[test_a2], order=tdl.BUILD, allow_set=True)
+            def test_a3(self, value):
+                return value*self.test_a2
+
+            @tdl.pr(reqs=[test_a3], order=tdl.BUILD)
+            def test_a4(self, value):
+                return value*self.test_a3
+
+            def __init__(self, value):
+                self.value = value
+
+        model_a1 = ModelA("value", test_a1=1.0, test_a3=3.0)
+        tdl.build(model_a1, test_a4=4.0)
+        args, kargs = tdl.get_input_args(model_a1)
+        assert args == ("value",)
+        assert kargs["test_a1"].args[0] == 1.0
+        assert kargs["test_a3"].args[0] == 3.0
+        assert "test_a2" not in kargs
