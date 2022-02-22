@@ -13,6 +13,11 @@ Some of the goals with this library are:
 Toy example:
 
 ```python
+import tdl_attrs as tdl
+import random
+
+# Start by using the @tdl.define decorator, which looks for tdl.pr attributes
+# and configures the default initialization and build functions for the class
 @tdl.define
 class Dense(object):
     # Declare 'activation' as an attribute with default value None
