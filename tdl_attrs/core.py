@@ -1,3 +1,4 @@
+import copy
 import inspect
 import functools
 import networkx as nx
@@ -22,6 +23,8 @@ class TDLobj(object):
     def __init__(self):
         self.enabled = True
         self.user_args = dict()
+        self.is_init = False
+        self.is_built = False
 
 
 class TdlArgs(object):
@@ -57,23 +60,32 @@ def _default_setter(self, value):
 
 class TdlDescriptor(object):
     @classmethod
-    def required(cls, order=OrderType.INIT, doc=None):
+    def required(cls, order=OrderType.INIT, doc=None,
+                 allow_set=False, allow_reset=False
+                 ):
         def finit(self, value):
             return value
-        return cls(finit=finit, order=order, doc=doc, infer_name=False)
+        return cls(finit=finit, order=order, doc=doc,
+                   allow_set=allow_set, allow_reset=allow_reset,
+                   infer_name=False)
 
     @classmethod
-    def optional(cls, default=None, order=OrderType.INIT, doc=None):
+    def optional(cls, default=None, order=OrderType.INIT, doc=None,
+                 allow_set=False, allow_reset=False
+                 ):
         def finit(self, value=None):
             if value is None:
                 return default
             return value
-        return cls(finit=finit, order=order, doc=doc, infer_name=False)
+        return cls(finit=finit, order=order, doc=doc,
+                   allow_set=allow_set, allow_reset=allow_reset,
+                   infer_name=False)
 
     def setter(self, fset):
         prop = type(self)(self.finit, self.reqs, self.order,
                           fset=fset,
                           doc=self.__doc__,
+                          allow_reset=self.allow_reset,
                           infer_name=False)
         prop.update_name(self.name)
         return prop
@@ -89,9 +101,13 @@ class TdlDescriptor(object):
                     self._finit(self._obj, *args, **kargs))
 
     def __init__(self, finit=None, reqs=None, order=OrderType.INIT,
-                 fset=None, doc=None, infer_name=True, allow_set=False):
+                 fset=None, doc=None, infer_name=True, allow_set=False,
+                 allow_reset=False):
         self.finit = finit
         self.fset = fset
+        if allow_reset:
+            allow_set = True
+        self.allow_reset = allow_reset
         if allow_set and fset is None:
             self.fset = _default_setter
         self.order = order
@@ -139,7 +155,7 @@ class TdlDescriptor(object):
         if self.fset is None:
             raise AttributeError(f"can't set attribute {self.name}. "
                                  "No setter specified.")
-        if hasattr(obj, self.private_name):
+        if not self.allow_reset and hasattr(obj, self.private_name):
             raise AttributeError(f"can't set attribute {self.name}. "
                                  "Attribute has been already initialized")
         setattr(obj, self.private_name, self.fset(obj, value))
@@ -148,7 +164,7 @@ class TdlDescriptor(object):
         assert self.finit is None,\
             'the evaluation method has already been specified'
         return type(self)(finit=finit, reqs=self.reqs, order=self.order,
-                          fset=self.fset,
+                          fset=self.fset, allow_reset=self.allow_reset,
                           doc=self.__doc__)
 
 
@@ -243,9 +259,10 @@ def build(obj, **kargs):
             # user_args[ki] should be TdlArgs
             user_args[ki].update_infer(vi)
         else:
-            user_args[ki] = vi
+            user_args[ki] = TdlArgs.infer(vi)
 
     init_graph(type(obj), obj, _tdl_order=OrderType.BUILD, **user_args)
+    return obj
 
 
 def define(cls):
@@ -269,6 +286,12 @@ def define(cls):
 
 def get_input_args(obj):
     args = obj.__tdl__.user_args.init.args
-    kargs = {**obj.__tdl__.user_args.init.kargs,
-             **obj.__tdl__.user_args.graph}
+    kargs = {**copy.deepcopy(obj.__tdl__.user_args.init.kargs),
+             **copy.deepcopy(obj.__tdl__.user_args.graph)}
     return args, kargs
+
+
+def args_provided(obj, name):
+    """Return if arguments have been provided to tdl."""
+    assert hasattr(obj, "__tdl__")
+    return name in obj.__tdl__.user_args.graph
