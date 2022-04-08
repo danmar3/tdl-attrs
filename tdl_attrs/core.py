@@ -27,6 +27,14 @@ class TDLobj(object):
         self.is_built = False
 
 
+class Defaults(object):
+    def __init__(self, **kargs):
+        self.kargs = kargs
+
+    def merge(self, data):
+        return {**self.kargs, **data}
+
+
 class TdlArgs(object):
     @classmethod
     def infer(cls, args, finit=None):
